@@ -1,0 +1,63 @@
+# Python cache and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Large raster and geospatial files (ignore globally)
+*.tif
+*.tiff
+*.vrt
+*.ovr
+*.aux
+*.aux.xml
+
+# NetCDF and other large arrays
+*.nc
+
+# Zarr stores and chunked stores
+*.zarr/
+*.zarr
+
+# Point cloud / LiDAR
+*.laz
+*.las
+
+# Common archive formats
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Data and outputs directories (ignore large generated outputs)
+/data/*.laz
+/data/*.las
+/outputs/
+/outputs/**
+
+# Lidar tiles
+/outputs/lidar_tiles/
+
+# Zarr stores in outputs or elsewhere
+*.zarr
+
+# Model artifacts (optional; remove if you want to version model files)
+/models/*.joblib
+/models/*.pkl
+
+# Python packaging
+dist/
+build/
+.egg-info/

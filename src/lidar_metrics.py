@@ -81,7 +81,7 @@ def load_and_normalise(las_path, height_min=config.HEIGHT_MIN, height_max=config
     return x[keep], y[keep], z_norm[keep], classification[keep], crs
 
 
-def _normalise_against_ground(x, y, z, ground_mask, cell=5.0):
+def _normalise_against_ground(x, y, z, ground_mask, cell=3.0):
     """
     Coarse fallback height normalisation: builds a low-resolution ground
     surface from classified ground points (median z per `cell` m grid cell)
@@ -116,52 +116,140 @@ def _normalise_against_ground(x, y, z, ground_mask, cell=5.0):
 # ---------------------------------------------------------------------------
 # 2. Per-cell structural metrics (Table 2, 23 metrics)
 # ---------------------------------------------------------------------------
-def _cell_metrics(z_norm: np.ndarray) -> dict:
-    """Compute the 23 structural metrics (Table 2) for one 20 m cell."""
+# def _cell_metrics(z_norm: np.ndarray) -> dict:
+#     """Compute the 23 structural metrics (Table 2) for one 20 m cell."""
+
+#     n_total = z_norm.size
+#     if n_total == 0:
+#         return {k: np.nan for k in METRIC_NAMES}
+
+#     n_ground = np.sum(z_norm <= 0)
+#     n_nonground = n_total - n_ground
+
+#     out = {}
+
+#     # Gap Fraction Probability: proportion of returns from/near the ground
+#     # (i.e. canopy "gaps" letting laser reach the ground), Table 2.
+#     out["GFP"] = n_ground / n_total if n_total > 0 else np.nan
+
+#     # Plant Area Index: derived from the canopy gap fraction following the
+#     # Beer-Lambert relation commonly used with lidR (e.g. -ln(GFP)/k, k~0.5).
+#     # If GFP == 0, PAI is undefined; cap to a large but finite value.
+#     gfp = out["GFP"]
+#     if gfp > 0:
+#         out["PAI"] = -np.log(gfp) / 0.5
+#     else:
+#         out["PAI"] = -np.log(1.0 / n_total) / 0.5  # finite-sample approx
+
+#     nonground_z = z_norm[z_norm > 0]
+
+#     # Standard deviation of height of all non-ground returns
+#     out["stdev"] = np.std(nonground_z) if nonground_z.size > 0 else np.nan
+
+#     # Height percentiles (Table 2)
+#     for p in config.HEIGHT_PERCENTILES:
+#         out[f"p{p}"] = (
+#             np.percentile(nonground_z, p) if nonground_z.size > 0 else np.nan
+#         )
+
+#     # Density by height band: proportion of non-ground returns in each band
+#     # relative to TOTAL returns (per Table 2 wording "/ total number of returns")
+#     for lo, hi in config.DENSITY_BANDS:
+#         key = f"dens_{lo}_{hi}m"
+#         n_band = np.sum((z_norm > lo) & (z_norm <= hi))
+#         out[key] = n_band / n_total if n_total > 0 else np.nan
+
+#     out["dens_>1m"] = np.sum(z_norm > 1) / n_total if n_total > 0 else np.nan
+#     out["dens_>2m"] = np.sum(z_norm > 2) / n_total if n_total > 0 else np.nan
+#     out["dens_total"] = n_nonground / n_total if n_total > 0 else np.nan
+
+#     return out
+
+def _cell_metrics(z_norm: np.ndarray, classification: np.ndarray) -> dict:
+    """Compute structural metrics for one 20 m cell."""
 
     n_total = z_norm.size
+
     if n_total == 0:
         return {k: np.nan for k in METRIC_NAMES}
 
-    n_ground = np.sum(z_norm <= 0)
-    n_nonground = n_total - n_ground
+    # -------------------------------------------------------------
+    # Ground / non-ground based on LAS classification
+    # -------------------------------------------------------------
+    ground_mask = classification == 2
+    nonground_mask = ~ground_mask
+
+    n_ground = np.sum(ground_mask)
+    n_nonground = np.sum(nonground_mask)
 
     out = {}
 
-    # Gap Fraction Probability: proportion of returns from/near the ground
-    # (i.e. canopy "gaps" letting laser reach the ground), Table 2.
-    out["GFP"] = n_ground / n_total if n_total > 0 else np.nan
+    # -------------------------------------------------------------
+    # Gap Fraction Probability
+    # Simple return-based ground penetration ratio
+    # -------------------------------------------------------------
+    out["GFP"] = n_ground / n_total
 
-    # Plant Area Index: derived from the canopy gap fraction following the
-    # Beer-Lambert relation commonly used with lidR (e.g. -ln(GFP)/k, k~0.5).
-    # If GFP == 0, PAI is undefined; cap to a large but finite value.
+    # -------------------------------------------------------------
+    # Plant Area Index
+    # Beer-Lambert approximation assuming extinction coefficient = 0.5
+    # -------------------------------------------------------------
     gfp = out["GFP"]
+
     if gfp > 0:
         out["PAI"] = -np.log(gfp) / 0.5
     else:
-        out["PAI"] = -np.log(1.0 / n_total) / 0.5  # finite-sample approx
+        out["PAI"] = np.nan
 
-    nonground_z = z_norm[z_norm > 0]
+    # -------------------------------------------------------------
+    # Non-ground heights
+    # -------------------------------------------------------------
+    nonground_z = z_norm[nonground_mask]
 
-    # Standard deviation of height of all non-ground returns
-    out["stdev"] = np.std(nonground_z) if nonground_z.size > 0 else np.nan
+    # Height standard deviation
+    out["stdev"] = (
+        np.std(nonground_z, ddof=1)
+        if nonground_z.size > 1
+        else np.nan
+    )
 
-    # Height percentiles (Table 2)
+    # -------------------------------------------------------------
+    # Height percentiles
+    # -------------------------------------------------------------
     for p in config.HEIGHT_PERCENTILES:
         out[f"p{p}"] = (
-            np.percentile(nonground_z, p) if nonground_z.size > 0 else np.nan
+            np.percentile(nonground_z, p)
+            if nonground_z.size > 0
+            else np.nan
         )
 
-    # Density by height band: proportion of non-ground returns in each band
-    # relative to TOTAL returns (per Table 2 wording "/ total number of returns")
+    # -------------------------------------------------------------
+    # Density by height band
+    # denominator = ALL returns
+    # -------------------------------------------------------------
     for lo, hi in config.DENSITY_BANDS:
-        key = f"dens_{lo}_{hi}m"
-        n_band = np.sum((z_norm > lo) & (z_norm <= hi))
-        out[key] = n_band / n_total if n_total > 0 else np.nan
 
-    out["dens_>1m"] = np.sum(z_norm > 1) / n_total if n_total > 0 else np.nan
-    out["dens_>2m"] = np.sum(z_norm > 2) / n_total if n_total > 0 else np.nan
-    out["dens_total"] = n_nonground / n_total if n_total > 0 else np.nan
+        key = f"dens_{lo}_{hi}m"
+
+        n_band = np.sum(
+            nonground_mask
+            & (z_norm > lo)
+            & (z_norm <= hi)
+        )
+
+        out[key] = n_band / n_total
+
+    out["dens_>1m"] = (
+        np.sum(nonground_mask & (z_norm > 1))
+        / n_total
+    )
+
+    out["dens_>2m"] = (
+        np.sum(nonground_mask & (z_norm > 2))
+        / n_total
+    )
+
+    out["dens_total"] = n_nonground / n_total
 
     return out
 
@@ -178,7 +266,7 @@ METRIC_NAMES = (
 # 3. Grid the point cloud onto the 20 m raster and write GeoTIFF
 # ---------------------------------------------------------------------------
 def compute_structural_metrics_raster(
-    x, y, z_norm, crs, out_path=config.METRICS_RASTER, pixel_size=config.PIXEL_SIZE
+    x, y, z_norm, classification, crs, out_path=config.METRICS_RASTER, pixel_size=config.PIXEL_SIZE
 ):
     """
     Bin points into `pixel_size` m cells and compute the 23 structural metrics
@@ -211,6 +299,7 @@ def compute_structural_metrics_raster(
     order = np.argsort(cell_id)
     cell_id_sorted = cell_id[order]
     z_sorted = z_norm[order]
+    classification_sorted = classification[order]
 
     # Iterate over unique cells using boundaries in the sorted array
     unique_cells, start_idx = np.unique(cell_id_sorted, return_index=True)
@@ -218,7 +307,7 @@ def compute_structural_metrics_raster(
 
     for cid, s, e in zip(unique_cells, start_idx, end_idx):
         r, c = divmod(int(cid), ncols)
-        metrics = _cell_metrics(z_sorted[s:e])
+        metrics = _cell_metrics(z_sorted[s:e], classification_sorted[s:e])
         for i, name in enumerate(METRIC_NAMES):
             data[i, r, c] = metrics[name]
 

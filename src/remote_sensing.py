@@ -25,6 +25,7 @@ os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 os.environ["AWS_DEFAULT_REGION"] = "ap-southeast-2"
 
 from . import config
+import dask
 
 
 # ===========================================================================
@@ -320,15 +321,14 @@ def compute_sar_composite(ds: xr.Dataset, period="annual", reducer="median"):
     else:
         raise ValueError(f"Unknown period: {period}")
 
-    reduce_fn = getattr(sub, reducer)
+    with dask.config.set({"array.rechunk.method": "tasks"}):
+        vv_db = to_db(sub["VV"]).pipe(lambda da: getattr(da, reducer)(dim="time"))
+        vh_db = to_db(sub["VH"]).pipe(lambda da: getattr(da, reducer)(dim="time"))
+        ratio_db = vv_db - vh_db
 
-    vv_db = to_db(sub["VV"]).pipe(lambda da: getattr(da, reducer)(dim="time"))
-    vh_db = to_db(sub["VH"]).pipe(lambda da: getattr(da, reducer)(dim="time"))
-    ratio_db = vv_db - vh_db
-
-    out = xr.Dataset({"VV_db": vv_db, "VH_db": vh_db, "VVVH_ratio_db": ratio_db})
-    out.attrs["period"] = period
-    out.attrs["reducer"] = reducer
+        out = xr.Dataset({"VV_db": vv_db, "VH_db": vh_db, "VVVH_ratio_db": ratio_db})
+        out.attrs["period"] = period
+        out.attrs["reducer"] = reducer
     return out
 
 
@@ -419,3 +419,39 @@ def compute_s2_composite(ds: xr.Dataset, period="annual", bands=config.S2_BANDS)
         raise ValueError(f"Unknown period: {period}")
 
     return geometric_median(sub, bands)
+
+def build_predictor_stack(sar_ds, s2_ds, period, s2_bands=config.S2_BANDS):
+    """
+    Extract SAR + S2 predictors at every pixel for `period`, returning a 2D
+    array of shape (n_pixels, n_predictors) and the spatial metadata needed
+    to write a GeoTIFF.
+    """
+    sar = sar_ds.sel(period=period)
+    s2 = s2_ds.sel(period=period)
+
+    # Align on common grid (take SAR as reference)
+    s2_aligned = s2.interp(x=sar.x, y=sar.y, method='nearest')
+
+    layers = []
+    names = []
+    for var in ['VV_db', 'VH_db', 'VVVH_ratio_db']:
+        arr = sar[var].values
+        layers.append(arr.ravel())
+        names.append(f'SAR_{var}')
+    for band in s2_bands:
+        short = 's2_' + band.replace('nbart_', '')
+        arr = s2_aligned[band].values
+        layers.append(arr.ravel())
+        names.append(short)
+
+    X = np.stack(layers, axis=1).astype(np.float32)
+    valid_mask = ~np.isnan(X).any(axis=1)
+
+    meta = {
+        'height': sar.y.size,
+        'width': sar.x.size,
+        'x': sar.x.values,
+        'y': sar.y.values,
+        'valid_mask': valid_mask,
+    }
+    return X, valid_mask, names, meta

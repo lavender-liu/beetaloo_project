@@ -24,7 +24,7 @@ pystac-client>=0.7,<0.9
 # Xarray / Zarr
 xarray>=2024.1
 zarr>=2.16,<3.0
-dask[distributed]>=2024.1
+dask>=2024.1
 
 # Modelling
 scikit-learn>=1.4,<1.6

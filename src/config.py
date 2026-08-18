@@ -12,23 +12,35 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Paths (edit these for your machine)
 # ---------------------------------------------------------------------------
-PROJECT_DIR = Path(__file__).resolve().parents[1]
+# PROJECT_DIR = Path(__file__).resolve().parents[1]
 
-DATA_DIR = PROJECT_DIR / "data"
-OUTPUT_DIR = PROJECT_DIR / "outputs"
+# DATA_DIR = PROJECT_DIR / "data"
+# OUTPUT_DIR = PROJECT_DIR / "outputs"
 
+DATA_DIR = Path("E:/beetaloo/inputs")
+OUTPUT_DIR = Path("E:/beetaloo/outputs")
 # Path to your local test .las file
 LAS_FILE = DATA_DIR / "TurnerRiver2024-C1-AHD_6597715_50.laz"
+# LAS_FILE = DATA_DIR / "TurnerRiver2024-C1-AHD_6607716_50.laz"
+# LAS_FILE = DATA_DIR / "MindyMindy_10ppm_DSM_Nov2023_e748n7470.las"
 
+LAS_NAME = LAS_FILE.stem
 # Derived/intermediate outputs
-TILE_DIR = OUTPUT_DIR / "lidar_tiles"          # tiled, normalised .laz
-METRICS_RASTER = OUTPUT_DIR / "lidar_structural_metrics.tif"  # 20 m multiband raster
+TILE_DIR = OUTPUT_DIR / f"{LAS_NAME}_lidar_tiles" # tiled las files
+METRICS_RASTER = OUTPUT_DIR / f"{LAS_NAME}_lidar_structural_metrics.tif" # 20 m
 # SAR_ZARR = OUTPUT_DIR / "sar_composites.zarr"
 # S2_ZARR = OUTPUT_DIR / "s2_composites.zarr"
-SAR_NC = OUTPUT_DIR / 'sar_composites.nc'
-S2_NC = OUTPUT_DIR / 's2_composites.nc'
-SAMPLES_GPKG = OUTPUT_DIR / "sample_points.gpkg"
-TRAINING_TABLE = OUTPUT_DIR / "training_table.parquet"
+SAR_NC = OUTPUT_DIR / f"{LAS_NAME}_sar_composites.nc"
+S2_NC = OUTPUT_DIR / f"{LAS_NAME}_s2_composites.nc"
+SAMPLES_GPKG = OUTPUT_DIR / f"{LAS_NAME}_sample_points.gpkg"
+TRAINING_TABLE = OUTPUT_DIR / f"{LAS_NAME}_training_table.parquet"
+LIDAR_BBOX = OUTPUT_DIR / f"{LAS_NAME}_lidar_bbox.geojson"
+
+# ---------------------------------------------------------------------------
+# Date range and seasons (Section 4.2) - should match the date of the LiDAR data
+# ---------------------------------------------------------------------------
+DATE_START = "2023-11-01"
+DATE_END = "2025-11-30"
 
 for d in (DATA_DIR, OUTPUT_DIR, TILE_DIR):
     d.mkdir(parents=True, exist_ok=True)
@@ -41,8 +53,9 @@ TILE_BUFFER = 10      # m, buffer to avoid edge artifacts
 HEIGHT_MIN = 0        # m, lasheight lower cutoff
 HEIGHT_MAX = 40       # m, lasheight upper cutoff (erroneous returns removed)
 
-PIXEL_SIZE = 20       # m, matches SAR/Sentinel-2 20 m grid (Section 4.1)
-SAMPLE_STRIDE = 3     # every 3rd pixel (Section 4.2 "regular spatial sample")
+PIXEL_SIZE = 20       # m, resampling resolution for LiDAR metrics, matches SAR/Sentinel-2 20 m grid (Section 4.1)
+# SAMPLE_STRIDE = 3     # every 3rd pixel (Section 4.2 "regular spatial sample")
+SAMPLE_STRIDE = 2     # every 2nd pixel (Section 4.2 "regular spatial sample")
 SAMPLE_JITTER_MAX = 20  # m, random jitter applied to sample locations
 
 # Height bands for density metrics (Table 2)
@@ -51,12 +64,6 @@ DENSITY_BANDS = [
     (5, 10), (10, 15), (15, 20), (20, 25),
 ]
 HEIGHT_PERCENTILES = [5, 10, 25, 50, 75, 90, 95, 98]
-
-# ---------------------------------------------------------------------------
-# Date range and seasons (Section 4.2)
-# ---------------------------------------------------------------------------
-DATE_START = "2024-06-01"
-DATE_END = "2025-05-31"
 
 # (start_month, start_day, end_month, end_day) — inclusive, Austral seasons
 SEASONS = {
